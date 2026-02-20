@@ -25,6 +25,7 @@ contract InvoiceMarketplace is ReentrancyGuard, IERC721Receiver {
     error InvoiceMarketplace__TokenNotOnSale();
     error InvoiceMarketplace__NotValidMinter();
     error InvoiceMarketplace__NotValidUser();
+    error InvoiceMarketplace__NoValidAmount();
 
     ////////////////////////////////////////////////////////////////////
     // Events                                                         //
@@ -46,7 +47,7 @@ contract InvoiceMarketplace is ReentrancyGuard, IERC721Receiver {
 
     address public immutable i_minter;
 
-    mapping(address user => uint256 collateralAllowed) public collateralAllowed;
+    mapping(address user => uint256 coinsAllowed) public coinsAllowed;
 
     /**
      *
@@ -73,20 +74,11 @@ contract InvoiceMarketplace is ReentrancyGuard, IERC721Receiver {
      * by a decentralized oracle that verifies the existence and validity of the invoice in an external system
      */
     function createInvoice(address to, uint256 tokenId, uint256 value, uint256 timeUntilDeadline) external {
-        if (tokenId == 0) {
-            revert InvoiceMarketplace__NotValidTokenId();
-        } else if (msg.sender != i_minter) {
+        if (msg.sender != i_minter) {
             revert InvoiceMarketplace__NotValidMinter();
         }
         invoiceToken.mint(to, tokenId, value, timeUntilDeadline);
         emit InvoiceCreated(tokenId, value, timeUntilDeadline);
-    }
-
-    function depositInvoiceAndMintCollateral(uint256 tokenId) external nonReentrant {
-        _depositInvoice(tokenId);
-        uint256 collateralIncrease = _getCollateralValue(tokenId);
-        _mintCollateral(msg.sender, collateralIncrease);
-        emit InvoiceDeposited(tokenId, msg.sender, collateralIncrease);
     }
 
     function depositInvoice(uint256 tokenId) external {
@@ -94,11 +86,18 @@ contract InvoiceMarketplace is ReentrancyGuard, IERC721Receiver {
         emit InvoiceDeposited(tokenId, msg.sender, _getCollateralValue(tokenId));
     }
 
-    function mintCollateral(address user, uint256 amount) public {
+    function mintCoins(address user, uint256 amount) public {
         if (user != msg.sender) {
             revert InvoiceMarketplace__NotValidUser();
         }
-        _mintCollateral(user, amount);
+        _mintCoins(user, amount);
+    }
+
+    function depositInvoiceAndMintCoins(uint256 tokenId) external nonReentrant {
+        _depositInvoice(tokenId);
+        uint256 collateralIncrease = _getCollateralValue(tokenId);
+        _mintCoins(msg.sender, collateralIncrease);
+        emit InvoiceDeposited(tokenId, msg.sender, collateralIncrease);
     }
 
     function buyInvoice(uint256 tokenId) external {
@@ -122,9 +121,9 @@ contract InvoiceMarketplace is ReentrancyGuard, IERC721Receiver {
     ////////////////////////////////////////////////////////////////////////
 
     function _depositInvoice(uint256 tokenId) internal {
-        invoiceToken.safeTransferFrom(msg.sender, address(this), tokenId);
         uint256 collateralIncrease = _getCollateralValue(tokenId);
-        collateralAllowed[msg.sender] += collateralIncrease;
+        coinsAllowed[msg.sender] += collateralIncrease;
+        invoiceToken.safeTransferFrom(msg.sender, address(this), tokenId);
     }
 
     function _getCollateralValue(uint256 tokenId) internal view returns (uint256) {
@@ -132,13 +131,13 @@ contract InvoiceMarketplace is ReentrancyGuard, IERC721Receiver {
         return (invoice.value * RISK_FACTOR) / RISK_PRECISION;
     }
 
-    function _mintCollateral(address user, uint256 amount) internal {
-        if (collateralAllowed[user] < amount) {
+    function _mintCoins(address user, uint256 amount) internal {
+        if (coinsAllowed[user] < amount) {
             revert InvoiceMarketplace__NotEnoughCollateral();
         } else if (amount == 0) {
-            revert InvoiceMarketplace__NoInvoiceCoins();
+            revert InvoiceMarketplace__NoValidAmount();
         }
-        collateralAllowed[user] -= amount;
+        coinsAllowed[user] -= amount;
         invoiceCoin.mint(user, amount);
     }
 }
