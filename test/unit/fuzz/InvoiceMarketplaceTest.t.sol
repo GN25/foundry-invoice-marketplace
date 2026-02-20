@@ -61,6 +61,7 @@ contract InvoiceMarketplaceTest is Test {
     }
 
     modifier hasCoins(address receiver) {
+        vm.assume(receiver != address(0));
         vm.prank(address(market));
         coin.mint(receiver, DEFAULT_COINS_GIVEN);
         _;
