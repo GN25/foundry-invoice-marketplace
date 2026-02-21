@@ -26,6 +26,8 @@ contract InvoiceMarketplace is ReentrancyGuard, IERC721Receiver {
     error InvoiceMarketplace__NotValidMinter();
     error InvoiceMarketplace__NotValidUser();
     error InvoiceMarketplace__NoValidAmount();
+    error InvoiceMarketplace__NotOwner();
+    error InvoiceMarketplace__TokenAlreadyDeposited();
 
     ////////////////////////////////////////////////////////////////////
     // Events                                                         //
@@ -48,6 +50,9 @@ contract InvoiceMarketplace is ReentrancyGuard, IERC721Receiver {
     address public immutable i_minter;
 
     mapping(address user => uint256 coinsAllowed) public coinsAllowed;
+
+    uint256[] public onSaleTokenIds;
+    uint256[] public createdInvoiceTokenIds;
 
     /**
      *
@@ -77,6 +82,7 @@ contract InvoiceMarketplace is ReentrancyGuard, IERC721Receiver {
         if (msg.sender != i_minter) {
             revert InvoiceMarketplace__NotValidMinter();
         }
+        createdInvoiceTokenIds.push(tokenId);
         invoiceToken.mint(to, tokenId, value, timeUntilDeadline);
         emit InvoiceCreated(tokenId, value, timeUntilDeadline);
     }
@@ -100,16 +106,8 @@ contract InvoiceMarketplace is ReentrancyGuard, IERC721Receiver {
         emit InvoiceDeposited(tokenId, msg.sender, collateralIncrease);
     }
 
-    function buyInvoice(uint256 tokenId) external {
-        if (invoiceCoin.balanceOf(msg.sender) < _getCollateralValue(tokenId)) {
-            revert InvoiceMarketplace__NoInvoiceCoins();
-        }
-        if (invoiceToken.ownerOf(tokenId) != address(this)) {
-            revert InvoiceMarketplace__TokenNotOnSale();
-        }
-        invoiceCoin.burn(msg.sender, _getCollateralValue(tokenId));
-        invoiceToken.safeTransferFrom(address(this), msg.sender, tokenId);
-        emit InvoiceBought(tokenId, msg.sender);
+    function buyInvoice(uint256 tokenId) external nonReentrant {
+        _buyInvoice(tokenId);
     }
 
     function onERC721Received(address, address, uint256, bytes calldata) external pure override returns (bytes4) {
@@ -121,8 +119,14 @@ contract InvoiceMarketplace is ReentrancyGuard, IERC721Receiver {
     ////////////////////////////////////////////////////////////////////////
 
     function _depositInvoice(uint256 tokenId) internal {
+        if (invoiceToken.ownerOf(tokenId) == address(this)) {
+            revert InvoiceMarketplace__TokenAlreadyDeposited();
+        } else if (invoiceToken.ownerOf(tokenId) != msg.sender) {
+            revert InvoiceMarketplace__NotOwner();
+        }
         uint256 collateralIncrease = _getCollateralValue(tokenId);
         coinsAllowed[msg.sender] += collateralIncrease;
+        onSaleTokenIds.push(tokenId);
         invoiceToken.safeTransferFrom(msg.sender, address(this), tokenId);
     }
 
@@ -139,5 +143,34 @@ contract InvoiceMarketplace is ReentrancyGuard, IERC721Receiver {
         }
         coinsAllowed[user] -= amount;
         invoiceCoin.mint(user, amount);
+    }
+
+    function _buyInvoice(uint256 tokenId) internal {
+        if (invoiceCoin.balanceOf(msg.sender) < _getCollateralValue(tokenId)) {
+            revert InvoiceMarketplace__NoInvoiceCoins();
+        }
+        if (invoiceToken.ownerOf(tokenId) != address(this)) {
+            revert InvoiceMarketplace__TokenNotOnSale();
+        }
+        invoiceCoin.burn(msg.sender, _getCollateralValue(tokenId));
+        _swapAndPopFromOnSale(tokenId);
+        invoiceToken.safeTransferFrom(address(this), msg.sender, tokenId);
+        emit InvoiceBought(tokenId, msg.sender);
+    }
+
+    function _swapAndPopFromOnSale(uint256 tokenId) internal {
+        uint256 lastIndex = onSaleTokenIds.length - 1;
+        if (onSaleTokenIds[lastIndex] == tokenId) {
+            onSaleTokenIds.pop();
+            return;
+        }
+        for (uint256 i = 0; i < onSaleTokenIds.length; i++) {
+            if (onSaleTokenIds[i] == tokenId) {
+                onSaleTokenIds[i] = onSaleTokenIds[lastIndex];
+                onSaleTokenIds.pop();
+                return;
+            }
+        }
+        revert InvoiceMarketplace__NotValidTokenId();
     }
 }

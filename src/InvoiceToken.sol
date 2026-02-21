@@ -19,6 +19,7 @@ contract InvoiceToken is ERC721, Ownable {
     }
 
     uint256 private _invoiceId;
+    uint256 public totalInvoicesMinted;
     mapping(uint256 id => Invoice invoice) public invoices;
 
     constructor() ERC721("InvoiceToken", "IT") Ownable(msg.sender) {}
@@ -35,7 +36,7 @@ contract InvoiceToken is ERC721, Ownable {
         }
 
         invoices[tokenId] = Invoice({id: tokenId, value: value, timeUntilDeadline: timeUntilDeadline, isPaid: false});
-
+        totalInvoicesMinted++;
         _mint(to, tokenId);
     }
 
@@ -51,5 +52,9 @@ contract InvoiceToken is ERC721, Ownable {
             revert InvoiceToken__TokenDoesNotExist();
         }
         return invoices[tokenId];
+    }
+
+    function getTotalInvoicesMinted() external view returns (uint256) {
+        return totalInvoicesMinted;
     }
 }
